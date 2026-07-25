@@ -1,0 +1,37 @@
+# ملف تشغيل الروبوت على GitHub Actions
+# مهم: عند النسخ إلى GitHub ضع هذا الملف في المسار: .github/workflows/notify.yml
+name: Howiya Auto Notifications
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # كل 10 دقائق تقريباً
+  workflow_dispatch: {} # للتشغيل اليدوي للتجربة
+
+permissions:
+  contents: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install firebase-admin
+        run: npm install firebase-admin --no-audit --no-fund
+
+      - name: Check news and send notifications
+        run: node notify.js
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Save last sent article
+        run: |
+          git config user.name "notify-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add last_sent.json
+          git diff --cached --quiet || git commit -m "Update last sent article"
+          git push
