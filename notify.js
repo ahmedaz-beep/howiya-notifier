@@ -1,5 +1,5 @@
 // روبوت إشعارات هوية بريس التلقائية
-// يفحص الموقع، وإذا وجد خبراً جديداً أرسل إشعاراً (صورة + عنوان + نص)
+// يفحص الموقع، وإذا وجد خبراً جديداً أرسل إشعاراً (صورة + عنوان فقط)
 // لكل مستخدمي التطبيق المشتركين في موضوع "news".
 
 const admin = require("firebase-admin");
@@ -27,6 +27,72 @@ function decode(str) {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// يتأكد أن رابط الصورة صالح فعلاً (بروتوكول http/https ورابط قابل للتحليل)
+// قبل إرساله لـ Firebase، لأن Firebase يرفض الرسالة بالكامل إن كان الرابط غير صالح.
+function getValidImageUrl(post) {
+  try {
+    const media = post._embedded && post._embedded["wp:featuredmedia"];
+    const src = media && media[0] && media[0].source_url;
+    if (typeof src !== "string" || src.trim() === "") return "";
+
+    const parsed = new URL(src);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+// يبني رسالة الإشعار: بعنوان فقط (بدون مقتطف)، مع الصورة إن كانت صالحة، بدونها إن لم تكن.
+function buildMessage(title, link, imageUrl) {
+  const androidNotification = {
+    sound: "default",
+  };
+
+  if (imageUrl) {
+    androidNotification.imageUrl = imageUrl;
+  }
+
+  return {
+    topic: TOPIC,
+    notification: {
+      title,
+    },
+    android: {
+      priority: "high",
+      notification: androidNotification,
+    },
+    data: {
+      url: link || "",
+    },
+  };
+}
+
+// يرسل الرسالة، وإن رفضتها Firebase بسبب الصورة تحديدًا، يعيد المحاولة بدون صورة
+// بدل أن يفشل السكربت بالكامل.
+async function sendWithFallback(title, link, imageUrl) {
+  const message = buildMessage(title, link, imageUrl);
+
+  try {
+    await admin.messaging().send(message);
+  } catch (err) {
+    const isImageError =
+      imageUrl &&
+      err &&
+      typeof err.message === "string" &&
+      err.message.toLowerCase().includes("imageurl");
+
+    if (isImageError) {
+      console.log("رابط الصورة رفضته Firebase، إعادة الإرسال بدون صورة:", title);
+      const fallbackMessage = buildMessage(title, link, "");
+      await admin.messaging().send(fallbackMessage);
+    } else {
+      throw err;
+    }
+  }
 }
 
 async function main() {
@@ -99,41 +165,9 @@ async function main() {
     const title =
       decode(post.title?.rendered) || "خبر جديد من هوية بريس";
 
-    let body = decode(
-      (post.excerpt?.rendered || "").replace(/<[^>]*>/g, "")
-    );
+    const imageUrl = getValidImageUrl(post);
 
-    if (body.length > 120)
-      body = body.substring(0, 120) + "...";
-
-    let image = null;
-
-    if (
-      post._embedded &&
-      post._embedded["wp:featuredmedia"] &&
-      post._embedded["wp:featuredmedia"][0]
-    ) {
-      image = post._embedded["wp:featuredmedia"][0].source_url;
-    }
-
-    const message = {
-      topic: TOPIC,
-      notification: {
-        title,
-      },
-      android: {
-        priority: "high",
-        notification: {
-          sound: "default",
-          ...(image ? { imageUrl: image } : {}),
-        },
-      },
-      data: {
-        url: post.link || "",
-      },
-    };
-
-    await admin.messaging().send(message);
+    await sendWithFallback(title, post.link, imageUrl);
 
     console.log("تم إرسال:", title);
 
