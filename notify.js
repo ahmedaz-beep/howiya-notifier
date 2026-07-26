@@ -120,7 +120,6 @@ async function main() {
       topic: TOPIC,
       notification: {
         title,
-        body,
       },
       android: {
         priority: "high",
