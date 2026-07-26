@@ -4,7 +4,7 @@ name: Howiya Auto Notifications
 
 on:
   schedule:
-    - cron: "*/10 * * * *" # كل 10 دقائق تقريباً
+    - cron: "*/5 * * * *" # كل 5 دقائق (الحد الأدنى المسموح به من GitHub، أي فاصل أقل لا يعمل إطلاقًا)
   workflow_dispatch: {} # للتشغيل اليدوي للتجربة
 
 permissions:
